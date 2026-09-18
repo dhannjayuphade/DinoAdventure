@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>DinoAdventure</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#101820;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+body{display:grid;place-items:center}.game{position:relative;width:min(100vw,960px);height:min(100vh,540px);overflow:hidden;background:#8ed8ff;touch-action:none;user-select:none}
+canvas{display:block;width:100%;height:100%}.hud{position:absolute;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;gap:10px;pointer-events:none;color:#fff;font-weight:900;text-shadow:0 2px 3px #000}
+.badge{background:#16202bcc;border:1px solid #ffffff55;border-radius:14px;padding:8px 12px;backdrop-filter:blur(5px);font-size:14px}
+.overlay{position:absolute;inset:0;display:grid;place-items:center;background:#08131c66}
+.panel{width:min(88%,420px);padding:28px;border:1px solid #ffffff44;border-radius:24px;background:#10212eea;color:#fff;text-align:center;box-shadow:0 20px 50px #0006}
+h1{margin:0 0 8px;font-size:clamp(34px,8vw,62px);letter-spacing:2px}p{margin:8px 0 20px;color:#d8e5eb}
+button{border:0;border-radius:14px;padding:13px 20px;font-size:16px;font-weight:900;cursor:pointer;background:#ffd54a;color:#241b00;min-height:48px}
+button:active{transform:scale(.97)}.hidden{display:none!important}
+.controls{position:absolute;bottom:16px;left:0;right:0;display:flex;justify-content:center;pointer-events:none}
+.jump{pointer-events:auto;width:110px;height:54px;border-radius:18px;background:#ffffffdd;border:2px solid #17232c;font-size:18px}
+.hint{font-size:13px;color:#bcd0d9;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="game" id="game">
+<canvas id="c"></canvas>
+<div class="hud"><div class="badge">🦖 DINOSADVENTURE</div><div class="badge">⭐ <span id="score">0</span> &nbsp; 🏆 <span id="best">0</span></div></div>
+<div class="overlay" id="overlay">
+ <div class="panel">
+  <h1>🦖 DinoAdventure</h1>
+  <p id="message">Run, jump, collect coins and survive as long as you can!</p>
+  <button id="start">START GAME</button>
+  <div class="hint">Tap JUMP or tap the game • Space / ↑ also jumps</div>
+ </div>
+</div>
+<div class="controls"><button class="jump" id="jump">⬆ JUMP</button></div>
+</div>
+<script>
+(() => {
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+const game=document.getElementById('game'), scoreEl=document.getElementById('score'),bestEl=document.getElementById('best');
+const overlay=document.getElementById('overlay'),message=document.getElementById('message'),start=document.getElementById('start'),jumpBtn=document.getElementById('jump');
+let W=960,H=540,dpr=1,raf=0,last=0,running=false,gameOver=false,score=0,best=0,speed=7,spawn=0,coinSpawn=0;
+let dino,obs=[],coins=[],clouds=[],dust=[],shake=0;
+try{best=Number(localStorage.getItem('dinoBest')||0)||0}catch(e){best=0}bestEl.textContent=best;
+function resize(){const r=game.getBoundingClientRect();dpr=Math.min(devicePixelRatio||1,2);W=960;H=540;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}resize();addEventListener('resize',resize);
+function reset(){
+ score=0;speed=7;spawn=55;coinSpawn=90;shake=0;obs=[];coins=[];dust=[];
+ dino={x:120,y:392,w:58,h:64,vy:0,onGround:true,frame:0};
+ clouds=Array.from({length:7},(_,i)=>({x:i*180+40,y:70+(i%3)*45,s:0.7+(i%3)*.15}));
+ scoreEl.textContent='0';
+}
+function jump(){if(!running){return}if(dino.onGround){dino.vy=-15;dino.onGround=false;for(let i=0;i<7;i++)dust.push({x:dino.x+20,y:450,vx:(Math.random()-.5)*2,vy:-Math.random()*2-1,a:1})}}
+function startGame(){reset();running=true;gameOver=false;overlay.classList.add('hidden');last=performance.now();cancelAnimationFrame(raf);raf=requestAnimationFrame(loop)}
+function endGame(){running=false;gameOver=true;best=Math.max(best,Math.floor(score));bestEl.textContent=best;try{localStorage.setItem('dinoBest',best)}catch(e){}message.textContent=`Game over! Score: ${Math.floor(score)}. Beat your best score!`;start.textContent='PLAY AGAIN';overlay.classList.remove('hidden')}
+start.addEventListener('click',startGame);jumpBtn.addEventListener('pointerdown',e=>{e.preventDefault();jump()});
+game.addEventListener('pointerdown',e=>{if(e.target===canvas)jump()});
+addEventListener('keydown',e=>{if(e.code==='Space'||e.code==='ArrowUp'){e.preventDefault();if(!running)startGame();else jump()}});
+function spawnObstacle(){const type=Math.random()<.55?'cactus':'rock';obs.push({x:1000,y:type==='cactus'?400:420,w:type==='cactus'?38:58,h:type==='cactus'?70:38,type})}
+function spawnCoin(){coins.push({x:1000,y:280+Math.random()*110,r:13,t:Math.random()*6.28})}
+function hit(a,b){return a.x+10<b.x+b.w-5&&a.x+a.w-10>b.x+5&&a.y+8<b.y+b.h&&a.y+a.h-6>b.y+4}
+function circleHit(c,a){const cx=Math.max(a.x,Math.min(c.x,a.x+a.w)),cy=Math.max(a.y,Math.min(c.y,a.y+a.h));return (c.x-cx)**2+(c.y-cy)**2<c.r*c.r}
+function update(dt){
+ const f=dt/16.67;dino.vy+=.72*f;dino.y+=dino.vy*f;if(dino.y>=392){dino.y=392;dino.vy=0;dino.onGround=true}
+ speed=Math.min(13,speed+.0015*f);score+=.10*f;scoreEl.textContent=Math.floor(score);
+ spawn-=f;if(spawn<=0){spawn=65+Math.random()*55-(speed-7)*3;spawnObstacle()}
+ coinSpawn-=f;if(coinSpawn<=0){coinSpawn=90+Math.random()*100;spawnCoin()}
+ obs.forEach(o=>o.x-=speed*f);coins.forEach(c=>{c.x-=speed*f;c.t+=.12*f});
+ obs=obs.filter(o=>o.x+o.w>-20);coins=coins.filter(c=>c.x+c.r>-20);
+ for(const o of obs)if(hit(dino,o)){endGame();return}
+ for(let i=coins.length-1;i>=0;i--)if(circleHit(coins[i],dino)){score+=10;for(let k=0;k<5;k++)dust.push({x:coins[i].x,y:coins[i].y,vx:(Math.random()-.5)*3,vy:(Math.random()-.5)*3,a:1});coins.splice(i,1)}
+ dust.forEach(p=>{p.x+=p.vx*f;p.y+=p.vy*f;p.vy+=.08*f;p.a-=.04*f});dust=dust.filter(p=>p.a>0);
+}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ const sky=ctx.createLinearGradient(0,0,0,H);sky.addColorStop(0,'#72cfff');sky.addColorStop(1,'#e6f8ff');ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+ clouds.forEach(c=>{c.x-=.25;if(c.x<-100)c.x=1050;ctx.fillStyle='#fff9';ctx.beginPath();ctx.arc(c.x,c.y,24*c.s,0,7);ctx.arc(c.x+28*c.s,c.y+4,32*c.s,0,7);ctx.arc(c.x+60*c.s,c.y+2,22*c.s,0,7);ctx.fill()});
+ ctx.fillStyle='#8ac47b';ctx.beginPath();ctx.moveTo(0,365);for(let x=0;x<=W;x+=90)ctx.lineTo(x,330+Math.sin(x*.018)*25);ctx.lineTo(W,480);ctx.lineTo(0,480);ctx.fill();
+ ctx.fillStyle='#4d9d55';ctx.fillRect(0,456,W,84);
+ ctx.fillStyle='#397b42';for(let x=0;x<W;x+=34){ctx.fillRect(x,456,18,5);ctx.fillRect(x+8,470,4,12)}
+ obs.forEach(o=>{ctx.fillStyle=o.type==='cactus'?'#26734a':'#6e6256';if(o.type==='cactus'){roundRect(o.x,o.y,o.w,o.h,10);ctx.fillRect(o.x-12,o.y+25,18,12);ctx.fillRect(o.x+32,o.y+38,18,12)}else{ctx.beginPath();ctx.ellipse(o.x+o.w/2,o.y+o.h/2,o.w/2,o.h/2,0,0,7);ctx.fill()}});
+ coins.forEach(c=>{ctx.save();ctx.translate(c.x,c.y);ctx.scale(.65+Math.abs(Math.sin(c.t))*.35,1);ctx.fillStyle='#ffc928';ctx.beginPath();ctx.arc(0,0,c.r,0,7);ctx.fill();ctx.fillStyle='#8b6200';ctx.font='bold 15px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('★',0,1);ctx.restore()});
+ drawDino();dust.forEach(p=>{ctx.globalAlpha=p.a;ctx.fillStyle='#fff';ctx.fillRect(p.x,p.y,4,4);ctx.globalAlpha=1});
+}
+function drawDino(){
+ const x=dino.x,y=dino.y;ctx.save();ctx.translate(x,y);
+ ctx.fillStyle='#277d43';roundRect(12,15,38,40,10);roundRect(0,5,36,28,10);roundRect(28,28,27,18,8);
+ ctx.fillStyle='#9be15d';roundRect(15,30,27,20,8);ctx.fillStyle='#1b5e35';ctx.fillRect(2,10,5,5);ctx.fillRect(11,8,5,5);
+ ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(25,13,7,0,7);ctx.fill();ctx.fillStyle='#111';ctx.beginPath();ctx.arc(27,13,3,0,7);ctx.fill();
+ ctx.fillStyle='#277d43';ctx.fillRect(20,52,10,12);ctx.fillRect(38,52,10,12);
+ ctx.fillStyle='#173d28';ctx.fillRect(18,62,14,4);ctx.fillRect(36,62,14,4);
+ ctx.restore();
+}
+function roundRect(x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill()}
+function loop(t){if(!running)return;const dt=Math.min(32,t-last);last=t;update(dt);draw();raf=requestAnimationFrame(loop)}
+reset();draw();
+})();
+</script>
+</body>
+</html>
